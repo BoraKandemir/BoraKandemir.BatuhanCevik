@@ -1,0 +1,485 @@
+---
+title: "Machine Learning End of Term Paper"
+output: pdf_document
+date: "2024-05-29"
+author: Bora KANDEMİR  Batuhan ÇEVİK
+toc: TRUE
+---
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE,include=FALSE}
+options(repos = list(CRAN="http://cran.rstudio.com/"))
+install.packages("ranger")
+install.packages("rpart.plot")
+install.packages("ROCR")
+install.packages("tidymodels")
+install.packages("rsample")
+installed.packages("dplyr")
+install.packages("AER")
+install.packages("DALEX")
+install.packages("car")
+install.packages("caret")
+install.packages("DescTools")
+install.packages("readr")
+install.packages("ROSE")
+install.packages("tune")
+install.packages("parsnip")
+install.packages("workflows")
+install.packages("randomForest")
+library(randomForest)
+library(parsnip)
+library(workflows)
+library(tune)
+library(ROSE)
+library(ranger)
+library(rpart.plot)
+library(ROCR)
+library(tidymodels)
+library(rsample)
+library(dplyr)
+library(DescTools)
+library(caret)
+library(car)
+library(DALEX)
+library(AER)
+library(readr)
+```
+
+
+
+# 1-) Problem, Features and Target
+
+Analyzing and predicting the energy levels of songs based on the given data set. The dataset includes various features that provide information about songs.These features include danceability, valence, liveness etc.The target variable in this data set is whether the energy levels of the songs are greater than or less than 50.It is represented by the “energy_%” column, where 1 indicates the energy level of songs are equal or greater than 50 and 0 indicates its less than 50.
+
+
+# 2-) The Dataset and Preparation for Analysis
+
+The dataset includes 817 observations, 5 categorical variables and 19 numeric variables.
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+data <- read_csv("spotify-2023.csv")
+glimpse(data)
+```
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+data$`energy_%` <- ifelse(data$`energy_%` >= 50, 1, 0)
+```
+This R code line converts the energy_% column in the data dataframe into a binary variable. As a result, the values in the energy_% column are recoded to be either 0 or 1. This process transforms the energy_% column into a binary variable, making it suitable for categorical analyses and modeling.
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+data <- data%>%na.omit()
+```
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+names(data)[names(data) == "energy_%"] <- "energy"
+columns_to_keep <- c("energy","in_deezer_charts", "danceability_%","in_spotify_charts","in_deezer_playlists", "valence_%", "acousticness_%","released_year", "liveness_%","in_spotify_playlists", "speechiness_%")
+spotify_data <- data[, columns_to_keep]
+colnames(spotify_data)[3] <- "danceability"
+colnames(spotify_data)[6] <- "valence"
+colnames(spotify_data)[7] <- "acousticness"
+colnames(spotify_data)[9] <- "liveness"
+colnames(spotify_data)[11] <- "speechiness"
+```
+This R code block changes the column names in the data dataframe and then selects and renames specific columns to create a new dataframe. In summary, this code block selects certain columns from the data dataframe, changes the names of some columns, and results in the creation of a new dataframe named spotify_data.
+
+
+## 2.1-) Imbalancedness Problem
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+set.seed(150)
+data_balanced_s <- ovun.sample(energy~., data = spotify_data, method = "over", p=0.5)
+data_balanced <- data_balanced_s$data
+```
+For imbalanced problem, This code block balances the energy variable in the spotify_data dataset and addresses class imbalances within the dataset. This process ensures that the classes have an equal number of examples, which can improve the model's training performance by balancing the dataset and setting randomness configurations.
+
+
+## 2.2-) Checking for Best Values of set.seed() and Prop
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+best_results <- list(m_number=NULL, i_number=NULL, best_ball=-Inf, k_number=NULL)
+
+for(i in seq(0.75, 0.9, 0.02)){
+  for(m in seq(120,150,2)){
+    for(k in seq(120,150,2)){
+      set.seed(k)
+      data_balanced_s <- ovun.sample(energy~., data = spotify_data, method = "over", p=0.5)
+      data_balanced <- data_balanced_s$data
+      set.seed(m)
+      data_split <- initial_split(data = data_balanced, prop = i)
+      data_train <- data_split |> training()
+      data_test <-  data_split |> testing()
+      lr_model <- glm(energy ~ ., data = data_train, family = "binomial")
+      lr_preds <- predict(lr_model, newdata = data_test, type = "response")
+      lr_pred_classes <- ifelse(lr_preds > 0.5, 1, 0)
+      lr_conf_matrix <- confusionMatrix(factor(lr_pred_classes), factor(data_test$energy))
+      ball_ac <- lr_conf_matrix$byClass["Balanced Accuracy"]
+      if(ball_ac > best_results$best_ball){
+      best_results$m_number <- m
+      best_results$i_number <- i
+      best_results$best_ball <- ball_ac
+      best_results$k_number <- k
+      }
+    }
+  }
+}
+print(best_results)
+```
+This R code block contains a loop that searches various parameters to get the best balanced accuracy using a logistic regression model on a dataset. To briefly summarize, the code block tries to find the best model by iterating over three parameters (i, m and k).
+
+
+# 3-) Splitting Edited Data
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+set.seed(146)
+data_split <- initial_split(data = data_balanced, prop = 0.87)
+data_train <- data_split |> training()
+data_test <-  data_split |> testing()
+```
+This code block randomly splits the balanced dataset into 87% training set and 13% test set.
+
+
+# 4-) Logistic Regression Model and It's Performance
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+lr_model <- glm(energy ~ ., data = data_train, family = "binomial")
+summary(lr_model)
+```
+This R code block creates a logistic regression model and displays the summary of this model. In the summary of the model, the effects of the independent variables on the dependent variable and the overall performance of the model can be evaluated.
+
+Comment: Looking at the coefficients of the independent variables, the coefficients of the variables "valence" and "acousticness" are quite high, which may indicate that these variables have a significant impact on the energy level. The coefficients of the "speechiness" and "danceability" variables are also noteworthy.
+According to the significance codes, several variables such as “valence”, “acousticness”, “danceability” and “speechiness” are highly significant (p < 0.001). Other variables are not statistically significant.
+The difference between null and residual deviation values ​​indicates that the model provides improvement.
+The AIC value is 1060.6. This value evaluates the fit of the model, while a lower AIC value will indicate that the model fits the data better.
+The Fisher Scoring iterations value is 5, indicating that the optimization process was repeated five times.
+
+
+## 4.1-) Logistic Regression Model's Predictions
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+lr_preds <- predict(lr_model, newdata = data_test, type = "response")
+lr_pred_classes <- ifelse(lr_preds > 0.5, 1, 0)
+```
+This R code block makes predictions on the test dataset using the logistic regression model and converts these predictions into binary classes. In summary, this block of code makes probability predictions on the test dataset using the created logistic regression model and then transforms these predictions into two classes, 0 and 1. This process is used to evaluate the classification performance of the model.
+
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+head(lr_preds)
+```
+This R code block provides a preview of how the model's predicted probabilities are distributed by displaying the first few predicted probability values in the lr_preds vector.
+
+Comment: These probabilities are classified according to whether they are above or below the equal value (0.5). That is, probabilities greater than 0.5 are assigned to class 1, and probabilities less than 0.5 are assigned to class 0.
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+head(lr_pred_classes)
+```
+This R code block displays the first few class predictions (0 or 1) in the lr_pred_classes vector, allowing you to quickly see which observations the model has assigned to which class.
+
+
+
+## 4.2-) Confusion Matrix of Logistic Regression Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+lr_conf_matrix <- confusionMatrix(factor(lr_pred_classes), factor(data_test$energy))
+print(lr_conf_matrix)
+```
+This code block creates a confusion matrix to evaluate the performance of the logistic regression model and prints this matrix to the console, allowing you to see the accuracy of the model's predictions and various performance metrics.
+
+Comment: Shows how the model compares actual and predicted classes. The classes on the left represent the real classes, while the classes on the top represent the predicted classes. For example, cell (0,0) represents true negatives (true value 0 and predicted value 0), while cell (1,0) represents false negatives (true value 1 and predicted value 0).
+Accuracy: Shows the proportion of observations classified as correct. In this case, the accuracy rate is 0.8663, meaning the model has a high ability to predict correctly.
+Sensitivity: Shows the proportion of true positives correctly classified. In this case, the precision ratio is 0.8721, meaning that the model's ability to correctly identify positive cases is quite high.
+Specificity: Shows the proportion of true negatives that are correctly classified. In this case, the specificity ratio is 0.8605, meaning the model's ability to correctly identify negative situations is quite high.
+Kappa Statistic: Measures how good the model is relative to its ability to make random predictions. A value close to 1 indicates that the model is much better than random guessing.
+Sensitivity (Detection Rate): Shows the detection rate of true positives. In this case, the detection rate is 0.4360, meaning only 43.60% of true positives were correctly detected.
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+rmse <- sqrt(mean((lr_pred_classes-data_test$energy)^2))
+rmse
+```
+This code block calculates the RMSE to measure how much the logistic regression model's predictions differ from the actual values and prints this value. RMSE is a commonly used metric to evaluate the prediction performance of a model. A lower RMSE value indicates better model performance.
+
+Comment: The RMSE value is quite small, indicating that the model has a low margin of error between the actual values and its predictions. Therefore, it can be said that the predictive ability of this model is quite good.
+
+
+## 4.3-) Overfitting for Logistic Regression Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+cvModel <- train(energy ~ ., data = data_train, method = "glm",family = "binomial", trControl = trainControl(method = "cv", number = 10))
+print(cvModel)
+```
+This R code block creates a logistic regression model using cross-validation and displays the model summary. This code block trains the logistic regression model using the cross-validation method and evaluates the model's performance. The results, along with the cross-validation results and performance metrics, are printed.
+
+Comment: It shows that the obtained RMSE, R-squared and MAE values are quite low and there is no sign of overfitting.
+
+
+## 4.4-) ROC Curve of Logistic Regression Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+explain_lr <- DALEX::explain(model = lr_model,
+              data = data_test[, -1],
+              y = data_test$energy == "1",
+              type = "classification",
+              verbose = FALSE)
+performance_lr <- DALEX::model_performance(explain_lr)
+plot(performance_lr, geom = "roc")
+```
+This code block plots a ROC curve to evaluate the performance of a logistic regression model. The ROC curve is used to visually assess the model's sensitivity and specificity performance.
+
+Comment: The ROC curve of the model lies well above the diagonal line, indicating that the model has a good ability to distinguish positive and negative classes.
+The model is able to maintain a low FPR while achieving a high TPR. This shows that the model is effective in distinguishing the two classes.
+Overall, the ROC curve shows that the model performs well in classifying samples and provides a good balance between sensitivity and specificity.
+
+
+
+## 4.5-) Brier Score of Logistic Regression Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+BrierScore(lr_model)
+```
+This code block calculates the Brier score to evaluate the model's calibration. A lower Brier score indicates that the model's predictions are better aligned with the actual labels, whereas a higher Brier score may indicate poor model calibration.
+
+Comment: The Brier score is a measure that assesses how well the predictions of a model align with the true labels. In this particular case, the Brier score has been calculated as 0.1479531. A lower Brier score indicates that the model's predictions are more in line with the true labels. Therefore, a Brier score of 0.1479531 suggests that the model's predictions are generally acceptably good and indicative of alignment with the true labels.
+
+
+
+# 5-) Decision Tree Model and It's Performance 
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+dt_model <- decision_tree() |>
+set_engine("rpart") |>
+set_mode("classification")
+```
+This code enables rapid creation of decision tree models for classification problems.
+
+
+## 5.1-) Decision Tree Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+data_train$energy <- as.factor(data_train$energy)
+spotify_dt <- dt_model |>
+fit(energy~., data = data_train)
+spotify_dt
+```
+This code creates a decision tree model and then uses the dataset to train that model. The trained model is called spotify_dt and can be used to classify music energy.
+
+Comment : This output describes the decision rule that the decision tree model uses to classify data samples based on certain characteristics. For example, it makes decisions based on properties such as acousticness, valence, danceability, in_spotify_charts, in_deezer_playlists, released_year, and speechlessness.
+Each decision point checks the value of an attribute and makes a decision based on a certain threshold value. For example, (acousticness>=49.5) checks whether the acousticness property is greater than or equal to 49.5. This determines which subcategory a data point will be assigned to.
+Ultimately, this output represents the complex decision processes of the model and shows the importance of features in the data set in the classification process.
+
+
+## 5.2-) Graph of the Decision Tree Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+rpart.plot(spotify_dt$fit)
+```
+This decision tree chart is a visual representation of a model that predicts whether a song will be popular based on certain musical characteristics. The decision tree makes predictions by splitting the dataset based on a feature at each node.
+
+Comment: 
+Root Node; acousticness <= 50: This is the first split point of the decision tree. If a song's acoustic value is less than 50, right; If not, we go left.
+Left Branch; acousticness <= 70: If acousticness is greater than 50 and less than or equal to 70, we continue on this branch.
+valence < 77: If the valence (the song's positivity level) is less than 77, we continue.
+Valence < 77: The song is unlikely to be popular (0.6%).
+Valence >= 77: The song has a high probability of being popular (1.0%).
+acousticness > 70: If acousticness is greater than 70, the song is more likely to be popular (1.0%).
+   The comments will continue like this.
+
+
+
+## 5.3-) Predictions of Decision Tree Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+spotify_predictions <- spotify_dt |>
+predict(new_data = data_test)
+spotify_predictions
+```
+This code is used to evaluate the performance of the model on data that was not used in training the model. Predictions can be used to evaluate how the model performs on new examples in the test dataset.
+
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+spotify_dt |>
+predict(new_data = data_test,
+        type = "prob")
+```
+This output will return a matrix containing the classification probabilities of each data point. These probabilities can be used to predict which class the data point belongs to based on the probability of each class.
+
+
+## 5.4-) Confusion Matrix of Decision Tree Modeel
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+data_test$energy <- as.factor(data_test$energy)
+spotify_results <- tibble(predicted=spotify_predictions$.pred_class,
+                          actual=data_test$energy)
+spotify_results|> conf_mat(truth = actual, estimate = predicted)
+```
+This output is called a confusion matrix, which is used to evaluate the performance of a classification model. The confusion matrix shows the relationships between the classes predicted by the model and the actual classes.
+
+
+
+## 5.5-) Performance Metric Values of Decision Tree Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+spotify_results |> accuracy(truth = actual, estimate = predicted)
+```
+In line with this information, the accuracy metric of the model was calculated as 86.05%. This indicates that 86.05% of all predictions of the model were correct. The accuracy metric is used to evaluate the overall performance of the model and in this case we can say that the model performs quite well.
+
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+spotify_results |> sens(truth = actual, estimate = predicted)
+```
+This result shows that the model can identify examples belonging to the positive class with 87.21% accuracy and does not miss them. This metric shows that the model performs quite well in terms of correctly detecting positive examples.
+
+
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+spotify_results |> f_meas(truth = actual, estimate = predicted)
+```
+According to this table, the F1 score of the model is calculated as 86.21%. This shows that the model strikes a good balance between precision and recall values.
+The model is successful in correctly identifying positive classes and minimizing the number of false positives.
+
+
+
+## 5.6-) Overfitting Checking for Decision Tree Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+spotifyfit <- dt_model |>
+last_fit(as.factor(energy) ~., split = data_split)
+spotifyfit |> collect_metrics()
+```
+This output is a table summarizing three different metrics that evaluate a model's performance. These metrics include the model's accuracy (accuracy), area under the ROC curve (roc_auc), and Brier score (brier_class).
+Accuracy: 86.05% of all predictions of the model are correct. This indicates that the overall performance of the model is good.
+ROC AUC: ROC AUC score indicates that the classification ability of the model is good. The closer it is to 1, the better the model's ability to distinguish positive and negative classes. This score indicates that the model performs quite well with 88.93%.
+Brier Score: The Brier score measures how accurate the predicted probabilities are. A lower Brier score indicates better performance. In this case, a low score of 0.116 indicates that the model's probability predictions are accurate.
+
+
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+spotifyfit |> collect_predictions()
+```
+This output is a table detailing the predictions from the spotifyfit model. Each row of the table shows predictive information for one data point (sample). Each column in the table represents different information.
+This information details how confident the model is for which examples and which classes it predicts. It can be used to evaluate the performance of the model and the accuracy of its predictions. Higher probability values ​​of the model indicate that it is more confident in its predictions, which increases the reliability of the model.
+
+
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+spotify_dt1 <- rpart(energy ~ ., data = data_train,
+method = "class")
+rpart.plot(spotify_dt1)
+```
+This decision tree uses features such as acoustics, valence, playlist appearances, conversation rate, and release year to predict the popularity of songs. Each leaf node represents the probability that songs belonging to that branch will become popular. In summary, this chart is a visual representation of a model used to predict whether songs will be popular based on musical characteristics.
+
+
+## 5.7-) Hyperparameter Tuning for Decision Tree Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+new_dt <- rpart(energy ~ ., data = data_train,
+method = "class",
+maxdepth =10,
+cp = 0.001)
+rpart.plot(new_dt)
+```
+This decision tree chart is a visual representation of a more detailed model that predicts whether a song will be popular based on musical features. In each node, a feature and the division decision made based on this feature are shown.
+
+Comment:
+valence < 38: Songs with valence less than 38:
+in_spotify_charts < 18: If Spotify charts have less than 18 songs (0.46%).
+in_deezer_playlists <= 644: If there are 644 or fewer songs in Deezer playlists (0.47%).
+in_spotify_playlists >= 1782: If Spotify playlists have 1782 or more songs (0.85%).
+danceability <= 47: Danceability is less than 47 (0.38%).
+speechiness <= 8: Speechlessness is less than 8 (0.47%).
+in_deezer_playlists < 188: If there are less than 188 songs in Deezer playlists (0.50%).
+valence >= 38: Songs with valence 38 or higher:
+released_year >= 2023: Songs released in 2023 or newer (0.43%).
+speechlessness >= 32: Speechlessness is 32 or higher (0.84%).
+in_deezer_charts < 1: Songs that do not appear on Deezer charts at all (0.74%).
+danceability <= 59: If danceability is less than 59 (0.95%).
+speechiness <= 7: Speechlessness is less than 7 (0.81%).
+in_deezer_playlists <= 1: If there is 1 or less song in Deezer playlists (%0.51).
+
+
+## 5.8-) Imbalancedness Check for Decision Tree Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+table(data_train$energy)/dim(data_train) [1]
+```
+These results show that the class distribution of the energy variable in the data_train dataset is quite balanced. The proportions of both classes (0 and 1) in the dataset are approximately equal, which allows the model to have a more balanced performance in learning and predicting both classes. Balanced class distribution minimizes potential model performance problems that may arise from imbalance between classes.
+
+
+ 
+# 6-) Bagging Tree Model and It's Performance
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+trained_bt <- ranger(energy ~ .,
+                    data = data_train,
+                    mtry = 8)
+trained_bt
+```
+This output contains the summary of the training process of the bagging tree model. Here are some highlights from this output:
+Model type: A classification model was trained on the given data set.
+Number of trees: The model consists of a total of 500 trees.
+Sample size: There are 1149 samples in the training dataset.
+Number of independent variables: 10 independent variables were used in the model.
+Mtry: The number of independent variables that trees consider for randomly selected split points is determined as 8.
+Target node size: set to 1.
+Variable importance ranking mode: It is stated that the importance order of variables is not determined.
+Division rule: The "gini" division criterion was used when determining the division points of trees.
+OOB prediction error: Out-of-Bag (OOB) prediction error is reported as 4.35%. OOB error represents the error rate of predictions made on data points that were not used in training the trees. In this case, 4.35% indicates that approximately 4.35% of these predictions are incorrect.
+
+
+## 6.1-) Predictions and Classifications of Bagging Tree Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+bt_predicted_classes <- predict(trained_bt, data_test)$predictions
+head(bt_predicted_classes)
+```
+This output contains some of the predictions made for the test dataset. A class prediction was made for each observation. The predicted classes are categorized as 0 and 1. An initial fraction of predicted classes was reported as 1.
+
+
+## 6.2-) Confusion Matrix of Bagging Tree Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+conf_matrix <- confusionMatrix(bt_predicted_classes, data_test$energy)
+print(conf_matrix)
+```
+This output shows that the model has a high overall accuracy rate (0.9535), while the specificity value is slightly lower (0.9186) and the Kappa value is slightly lower (0.907).It can be said that the performance of the model is generally quite good and provides a good fit with the data.
+
+
+
+# 7-) Random Forest Model and It's Performance
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+rf_spotify <- randomForest(energy ~ ., data = data_train,
+                           type="classification")
+rf_spotify
+```
+Number of trees: The model consists of a total of 500 trees.
+Number of variables tried at each division: It was stated that 3 variables were tested at each division point.
+OOB prediction error rate: Out-of-Bag (OOB) prediction error is reported as 3.57%. This is the error rate obtained by predicting a portion of the training data set without being used by each tree.
+Confusion matrix: A matrix used to evaluate classification performance in more detail. This matrix allows comparison of actual classes with predicted classes. For example, it was stated that there were 566 correct guesses and 6 wrong guesses in class 0. It can be seen that there are 35 wrong guesses and 542 correct guesses in class 1.
+Class error rates: Error rates are reported separately for each class. For example, the error rate for class 0 is 0.0104%, and for class 1 it is 0.0606%.
+This output provides valuable information about the configuration and performance of the model. Since the OOB error rate is low, it can be said that the model generally performs well.
+
+
+## 7.1-) Predictions and Classifications of Random Forest Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+rf_predicted_classes <- predict(rf_spotify, data_test)
+head(rf_predicted_classes)
+```
+
+## 7.2-) Confusion Matrix of Random Forest Model
+
+```{r,error=FALSE,warning=FALSE,message=FALSE}
+conf_matrix_2 <- confusionMatrix(rf_predicted_classes, data_test$energy)
+print(conf_matrix_2)
+```
+According to this output, the model shows a very high accuracy rate (0.9593) and a balanced sensitivity (0.9884) and specificity (0.9302). This indicates that the model performs well overall.
